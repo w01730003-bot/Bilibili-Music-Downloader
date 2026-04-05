@@ -1,0 +1,16 @@
+# 归档目录 (音频文件)
+保持愤怒/
+睡前相声/
+街头社区/
+Downloads/
+
+# Python 环境
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# 缓存
+.cache/
+.pytest_cache/

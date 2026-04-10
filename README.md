@@ -27,5 +27,6 @@
 
 - `bilibili_to_mp3.py`: 主下载逻辑（带分类管理）。
 - `merge_mp3.py`: 合并多个音频文件的工具。
+- `rip_update.py`: RIP 路由更新算法示例实现（距离向量 + 定时器）。
 - `requirements.txt`: Python 依赖清单。
 - `快速启动.bat`: Windows 便捷启动脚本。

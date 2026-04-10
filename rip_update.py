@@ -32,7 +32,8 @@ class RouteEntry:
 
 class RIPRouter:
     """
-    一个可直接复用的 RIP 更新算法实现（距离向量 + 定时器）。
+    Reusable RIP update algorithm implementation
+    (distance-vector + timers).
     """
 
     def __init__(
@@ -67,11 +68,10 @@ class RIPRouter:
         self._dirty_destinations: set[str] = set()
 
     def add_direct_route(self, destination: str, interface: str, metric: int = 0) -> None:
-        now = time.time()
         self.routing_table[destination] = RouteEntry(
             destination=destination,
             next_hop=None,
-            metric=max(0, min(INFINITY_METRIC, metric)),
+            metric=self._clamp_metric(metric),
             interface=interface,
             source_neighbor=self.router_id,
             timeout_at=None,
@@ -88,8 +88,8 @@ class RIPRouter:
         now: Optional[float] = None,
     ) -> bool:
         """
-        接收邻居路由更新并按 RIP 规则更新本地路由表。
-        返回是否有变化（用于触发更新）。
+        Process one neighbor update and apply RIP route selection rules.
+        Returns True if local table changed.
         """
         if from_neighbor not in self.neighbors:
             raise ValueError(f"Unknown neighbor: {from_neighbor}")
@@ -99,7 +99,7 @@ class RIPRouter:
         in_if = self.neighbors[from_neighbor]
 
         for destination, neighbor_metric in routes.items():
-            new_metric = min(INFINITY_METRIC, max(0, neighbor_metric) + 1)
+            new_metric = self._clamp_metric(neighbor_metric + 1)
             current = self.routing_table.get(destination)
 
             if current is None:
@@ -125,7 +125,7 @@ class RIPRouter:
             same_source = current.source_neighbor == from_neighbor
 
             if same_source:
-                if current.metric != new_metric or current.next_hop != from_neighbor or current.interface != in_if:
+                if current.metric != new_metric:
                     changed = True
                     self._dirty_destinations.add(destination)
                 current.metric = new_metric
@@ -164,8 +164,8 @@ class RIPRouter:
 
     def advance_timers(self, *, now: Optional[float] = None) -> bool:
         """
-        处理超时与垃圾回收。
-        返回是否有变化（用于触发更新）。
+        Apply timeout and garbage-collection timers.
+        Returns True if local table changed.
         """
         now = time.time() if now is None else now
         changed = False
@@ -198,7 +198,8 @@ class RIPRouter:
 
     def get_periodic_updates(self, *, now: Optional[float] = None) -> Optional[Dict[str, Dict[str, int]]]:
         """
-        到达周期发送时间时，返回要发送给各邻居的完整更新包，否则返回 None。
+        Return full per-neighbor advertisements when periodic timer fires.
+        Otherwise return None.
         """
         now = time.time() if now is None else now
         if now < self.next_periodic_update_at:
@@ -209,18 +210,19 @@ class RIPRouter:
 
     def get_triggered_updates(self, *, now: Optional[float] = None) -> Optional[Dict[str, Dict[str, int]]]:
         """
-        到达触发更新时间时，返回要发送给各邻居的增量更新包，否则返回 None。
+        Return incremental per-neighbor advertisements when trigger timer fires.
+        Otherwise return None.
         """
         now = time.time() if now is None else now
         if self.trigger_update_at is None or now < self.trigger_update_at:
             return None
 
-        changed = sorted(self._dirty_destinations)
+        changed_destinations = tuple(self._dirty_destinations)
         self._dirty_destinations.clear()
         self.trigger_update_at = None
 
         return {
-            n: self._build_advertisement_for_neighbor(n, only_destinations=changed)
+            n: self._build_advertisement_for_neighbor(n, only_destinations=changed_destinations)
             for n in self.neighbors
         }
 
@@ -257,12 +259,16 @@ class RIPRouter:
                 else:
                     continue
 
-            adv[destination] = min(INFINITY_METRIC, max(0, metric))
+            adv[destination] = self._clamp_metric(metric)
         return adv
 
-    def snapshot(self) -> Dict[str, Dict[str, Optional[str]]]:
+    @staticmethod
+    def _clamp_metric(metric: int) -> int:
+        return max(0, min(INFINITY_METRIC, metric))
+
+    def snapshot(self) -> Dict[str, Dict[str, object]]:
         """
-        方便调试/测试：返回简化路由表视图。
+        Simplified routing table view for debugging/testing.
         """
         return {
             destination: {
